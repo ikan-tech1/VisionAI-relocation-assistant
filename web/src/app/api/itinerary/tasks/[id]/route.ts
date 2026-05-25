@@ -1,4 +1,5 @@
 import { updateTask } from "@/lib/store";
+import { toSafeErrorResponse } from "@/lib/apiErrors";
 
 export async function PATCH(
   request: Request,
@@ -28,7 +29,7 @@ export async function PATCH(
       return Response.json({ error: "Invalid task patch payload." }, { status: 400 });
     }
 
-    const result = updateTask(body.projectId, id, {
+    const result = await updateTask(body.projectId, id, {
       status: body.status,
       priority: body.priority,
       notes: body.notes,
@@ -36,8 +37,7 @@ export async function PATCH(
     });
     return Response.json(result);
   } catch (error) {
-    const message = String(error);
-    const status = message.toLowerCase().includes("not found") ? 404 : 400;
+    const { message, status } = toSafeErrorResponse(error);
     return Response.json({ error: message }, { status });
   }
 }

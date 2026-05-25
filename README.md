@@ -9,8 +9,9 @@ Web-first application for live room scanning and automated relocation planning.
 - Dedupe-aware item inventory generation
 - Editable packing itinerary with task statuses
 - Live state streaming via Server-Sent Events
-- Export endpoints (CSV/JSON)
+- Export endpoints (CSV/PDF/JSON)
 - Phase 2 starter APIs for calibration and load optimization
+- Optional Postgres-backed persistence via `DATABASE_URL` (falls back to in-memory)
 
 ## Project structure
 
@@ -28,3 +29,22 @@ npm run dev
 ```
 
 Then open `http://localhost:3000`.
+
+## Persistence configuration
+
+Set `DATABASE_URL` to enable durable project persistence:
+
+```bash
+DATABASE_URL=postgres://user:pass@host:5432/dbname
+```
+
+Without `DATABASE_URL`, the app runs in in-memory mode (good for local prototyping, not durable across server restarts).
+
+Optional deployment auth gate:
+
+```bash
+BASIC_AUTH_USER=admin
+BASIC_AUTH_PASS=change-me
+```
+
+When set, middleware enforces HTTP Basic auth across app and API routes.

@@ -1,5 +1,6 @@
 import { getProject } from "@/lib/store";
 import { optimizeLoad } from "@/lib/phase2";
+import { toSafeErrorResponse } from "@/lib/apiErrors";
 
 export async function POST(request: Request) {
   try {
@@ -8,7 +9,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "projectId is required." }, { status: 400 });
     }
 
-    const project = getProject(body.projectId);
+    const project = await getProject(body.projectId);
     if (!project) {
       return Response.json({ error: "Project not found." }, { status: 404 });
     }
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
     const recommendation = optimizeLoad(project);
     return Response.json({ recommendation });
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    const { message, status } = toSafeErrorResponse(error);
+    return Response.json({ error: message }, { status });
   }
 }

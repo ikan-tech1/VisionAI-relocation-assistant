@@ -11,15 +11,27 @@ export async function GET(
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
+      const cleanup = () => {
+        if (keepAlive) clearInterval(keepAlive);
+        if (unsubscribe) unsubscribe();
+      };
       const push = (payload: unknown) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        } catch {
+          cleanup();
+        }
       };
 
       push({ type: "connected", projectId: id });
       unsubscribe = subscribeToProject(id, push);
 
       keepAlive = setInterval(() => {
-        controller.enqueue(encoder.encode(": keep-alive\n\n"));
+        try {
+          controller.enqueue(encoder.encode(": keep-alive\n\n"));
+        } catch {
+          cleanup();
+        }
       }, 20_000);
     },
     cancel() {

@@ -1,4 +1,5 @@
 import { calibrateScale } from "@/lib/phase2";
+import { toSafeErrorResponse } from "@/lib/apiErrors";
 
 export async function POST(request: Request) {
   try {
@@ -28,6 +29,7 @@ export async function POST(request: Request) {
 
     return Response.json({ calibration });
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    const { message, status } = toSafeErrorResponse(error);
+    return Response.json({ error: message }, { status });
   }
 }

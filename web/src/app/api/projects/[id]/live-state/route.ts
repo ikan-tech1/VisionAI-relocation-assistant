@@ -5,7 +5,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
-  const project = getProject(id);
+  const project = await getProject(id);
   if (!project) {
     return Response.json({ error: "Project not found." }, { status: 404 });
   }

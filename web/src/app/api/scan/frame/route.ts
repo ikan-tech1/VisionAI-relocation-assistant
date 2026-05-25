@@ -1,4 +1,5 @@
 import { ingestFrame } from "@/lib/store";
+import { toSafeErrorResponse } from "@/lib/apiErrors";
 
 export async function POST(request: Request) {
   try {
@@ -15,15 +16,16 @@ export async function POST(request: Request) {
       typeof body?.frameDataUrl !== "string" ||
       !body.projectId ||
       !body.roomId ||
-      !body.frameDataUrl.startsWith("data:image/")
+      !body.frameDataUrl.startsWith("data:image/") ||
+      body.frameDataUrl.length > 5_000_000
     ) {
       return Response.json(
-        { error: "projectId, roomId and frameDataUrl are required." },
+        { error: "Invalid frame payload." },
         { status: 400 },
       );
     }
 
-    const result = ingestFrame({
+    const result = await ingestFrame({
       projectId: body.projectId,
       roomId: body.roomId,
       frameDataUrl: body.frameDataUrl,
@@ -32,8 +34,7 @@ export async function POST(request: Request) {
 
     return Response.json(result);
   } catch (error) {
-    const message = String(error);
-    const status = message.toLowerCase().includes("not found") ? 404 : 400;
+    const { message, status } = toSafeErrorResponse(error);
     return Response.json({ error: message }, { status });
   }
 }

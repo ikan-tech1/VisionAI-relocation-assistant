@@ -1,5 +1,6 @@
 import { inferRoomItems } from "@/lib/inference";
 import { generateItinerary } from "@/lib/itinerary";
+import { loadProjectState, saveProjectState } from "@/lib/persistence";
 import { Detection, Item, ItineraryTask, RelocationProject, Room } from "@/lib/domain";
 
 interface DetectionSeen {
@@ -22,6 +23,7 @@ type Listener = (payload: EventPayload) => void;
 
 const projects = new Map<string, ProjectState>();
 const listeners = new Map<string, Set<Listener>>();
+const hydrationPromises = new Map<string, Promise<ProjectState | null>>();
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -43,11 +45,43 @@ export function subscribeToProject(projectId: string, listener: Listener): () =>
   };
 }
 
-export function createProject(
+async function persistProjectState(state: ProjectState): Promise<void> {
+  await saveProjectState({
+    project: state.project,
+    detectionSeen: state.detectionSeen,
+  });
+}
+
+async function getOrHydrateProjectState(projectId: string): Promise<ProjectState | null> {
+  const inMemory = projects.get(projectId);
+  if (inMemory) return inMemory;
+
+  let pending = hydrationPromises.get(projectId);
+  if (!pending) {
+    pending = loadProjectState(projectId)
+      .then((hydrated) => {
+        if (!hydrated) return null;
+        const state: ProjectState = {
+          project: hydrated.project,
+          detectionSeen: hydrated.detectionSeen ?? [],
+        };
+        projects.set(projectId, state);
+        return state;
+      })
+      .finally(() => {
+        hydrationPromises.delete(projectId);
+      });
+    hydrationPromises.set(projectId, pending);
+  }
+
+  return pending;
+}
+
+export async function createProject(
   name: string,
   moveDate?: string,
   preferences?: { retentionMode?: "standard" | "ephemeral"; confidenceReviewThreshold?: number },
-): RelocationProject {
+): Promise<RelocationProject> {
   const id = crypto.randomUUID();
   const createdAt = nowIso();
   const project: RelocationProject = {
@@ -65,18 +99,19 @@ export function createProject(
     itineraryTasks: [],
   };
 
-  projects.set(id, { project, detectionSeen: [] });
+  const state = { project, detectionSeen: [] };
+  projects.set(id, state);
+  await persistProjectState(state);
   emit(id, { type: "project_created", project });
   return project;
 }
 
-export function getProject(projectId: string): RelocationProject | null {
-  return projects.get(projectId)?.project ?? null;
+export async function getProject(projectId: string): Promise<RelocationProject | null> {
+  const state = await getOrHydrateProjectState(projectId);
+  return state?.project ?? null;
 }
 
-export function ensureRoom(projectId: string, roomName: string): Room {
-  const state = projects.get(projectId);
-  if (!state) throw new Error("Project not found");
+function ensureRoom(state: ProjectState, roomName: string): Room {
   const existing = state.project.rooms.find(
     (room) => room.name.toLowerCase() === roomName.toLowerCase(),
   );
@@ -130,22 +165,26 @@ function upsertDetectedItem(state: ProjectState, roomId: string, detection: Dete
   return item;
 }
 
-export function startScanSession(projectId: string, roomName: string): { room: Room; project: RelocationProject } {
-  const state = projects.get(projectId);
+export async function startScanSession(
+  projectId: string,
+  roomName: string,
+): Promise<{ room: Room; project: RelocationProject }> {
+  const state = await getOrHydrateProjectState(projectId);
   if (!state) throw new Error("Project not found");
-  const room = ensureRoom(projectId, roomName);
+  const room = ensureRoom(state, roomName);
   room.scanStatus = "scanning";
   state.project.updatedAt = nowIso();
+  await persistProjectState(state);
   return { room, project: state.project };
 }
 
-export function ingestFrame(params: {
+export async function ingestFrame(params: {
   projectId: string;
   roomId: string;
   frameDataUrl: string;
   roomHint?: string;
-}): { project: RelocationProject; detections: Detection[]; newItems: Item[] } {
-  const state = projects.get(params.projectId);
+}): Promise<{ project: RelocationProject; detections: Detection[]; newItems: Item[] }> {
+  const state = await getOrHydrateProjectState(params.projectId);
   if (!state) throw new Error("Project not found");
   const room = state.project.rooms.find((entry) => entry.id === params.roomId);
   if (!room) throw new Error("Room not found");
@@ -160,6 +199,7 @@ export function ingestFrame(params: {
     state.project.itineraryTasks,
   );
   state.project.updatedAt = nowIso();
+  await persistProjectState(state);
 
   emit(params.projectId, { type: "scan_updated", project: state.project, detections });
   return { project: state.project, detections, newItems };
@@ -170,23 +210,24 @@ function average(values: number[]): number {
   return Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2));
 }
 
-export function regenerateItinerary(projectId: string): RelocationProject {
-  const state = projects.get(projectId);
+export async function regenerateItinerary(projectId: string): Promise<RelocationProject> {
+  const state = await getOrHydrateProjectState(projectId);
   if (!state) throw new Error("Project not found");
   state.project.itineraryTasks = mergeWithExistingTaskState(
     generateItinerary(state.project),
     state.project.itineraryTasks,
   );
   state.project.updatedAt = nowIso();
+  await persistProjectState(state);
   return state.project;
 }
 
-export function updateTask(
+export async function updateTask(
   projectId: string,
   taskId: string,
   patch: Partial<Pick<ItineraryTask, "status" | "priority" | "notes" | "title">>,
-): { project: RelocationProject; task: ItineraryTask } {
-  const state = projects.get(projectId);
+): Promise<{ project: RelocationProject; task: ItineraryTask }> {
+  const state = await getOrHydrateProjectState(projectId);
   if (!state) throw new Error("Project not found");
 
   const task = state.project.itineraryTasks.find((entry) => entry.id === taskId);
@@ -197,18 +238,20 @@ export function updateTask(
   if (typeof patch.notes === "string") task.notes = patch.notes;
   if (patch.title !== undefined) task.title = patch.title;
   state.project.updatedAt = nowIso();
+  await persistProjectState(state);
 
   emit(projectId, { type: "task_updated", project: state.project, task });
   return { project: state.project, task };
 }
 
-export function endRoomScan(projectId: string, roomId: string): RelocationProject {
-  const state = projects.get(projectId);
+export async function endRoomScan(projectId: string, roomId: string): Promise<RelocationProject> {
+  const state = await getOrHydrateProjectState(projectId);
   if (!state) throw new Error("Project not found");
   const room = state.project.rooms.find((entry) => entry.id === roomId);
   if (!room) throw new Error("Room not found");
   room.scanStatus = "completed";
   state.project.updatedAt = nowIso();
+  await persistProjectState(state);
   return state.project;
 }
 

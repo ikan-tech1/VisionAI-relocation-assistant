@@ -473,6 +473,12 @@ export default function RelocationAssistant() {
                 </a>
                 <a
                   className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
+                  href={`/api/projects/${project.id}/export?format=pdf`}
+                >
+                  Export PDF
+                </a>
+                <a
+                  className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
                   href={`/api/projects/${project.id}/export?format=json`}
                 >
                   Share JSON

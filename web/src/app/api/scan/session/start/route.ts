@@ -1,4 +1,5 @@
 import { startScanSession } from "@/lib/store";
+import { toSafeErrorResponse } from "@/lib/apiErrors";
 
 export async function POST(request: Request) {
   try {
@@ -16,11 +17,10 @@ export async function POST(request: Request) {
       return Response.json({ error: "projectId and roomName are required." }, { status: 400 });
     }
 
-    const result = startScanSession(body.projectId, body.roomName.trim());
+    const result = await startScanSession(body.projectId, body.roomName.trim());
     return Response.json(result);
   } catch (error) {
-    const message = String(error);
-    const status = message.toLowerCase().includes("not found") ? 404 : 400;
+    const { message, status } = toSafeErrorResponse(error);
     return Response.json({ error: message }, { status });
   }
 }

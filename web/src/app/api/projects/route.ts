@@ -1,4 +1,5 @@
 import { createProject } from "@/lib/store";
+import { toSafeErrorResponse } from "@/lib/apiErrors";
 
 export async function POST(request: Request) {
   try {
@@ -23,15 +24,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "Invalid project payload." }, { status: 400 });
     }
 
-    const project = createProject(body.name.trim(), body.moveDate, {
+    const project = await createProject(body.name.trim(), body.moveDate, {
       retentionMode: body.retentionMode,
       confidenceReviewThreshold: body.confidenceReviewThreshold,
     });
     return Response.json({ project }, { status: 201 });
   } catch (error) {
-    return Response.json(
-      { error: "Unable to create project.", details: String(error) },
-      { status: 500 },
-    );
+    const { message, status } = toSafeErrorResponse(error);
+    return Response.json({ error: message }, { status });
   }
 }
