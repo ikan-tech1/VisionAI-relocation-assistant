@@ -4,7 +4,7 @@ import { optimizeLoad } from "@/lib/phase2";
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { projectId?: string };
-    if (!body?.projectId) {
+    if (typeof body?.projectId !== "string" || !body.projectId) {
       return Response.json({ error: "projectId is required." }, { status: 400 });
     }
 

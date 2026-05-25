@@ -7,7 +7,12 @@ export async function POST(request: Request) {
       roomName?: string;
     };
 
-    if (!body?.projectId || !body?.roomName?.trim()) {
+    if (
+      typeof body?.projectId !== "string" ||
+      !body.projectId ||
+      typeof body?.roomName !== "string" ||
+      !body.roomName.trim()
+    ) {
       return Response.json({ error: "projectId and roomName are required." }, { status: 400 });
     }
 

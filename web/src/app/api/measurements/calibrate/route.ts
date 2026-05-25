@@ -7,7 +7,14 @@ export async function POST(request: Request) {
       observedPixelWidth?: number;
     };
 
-    if (!body.referenceObject || !body.observedPixelWidth) {
+    if (
+      (body.referenceObject !== "credit_card" &&
+        body.referenceObject !== "a4_paper" &&
+        body.referenceObject !== "standard_box") ||
+      typeof body.observedPixelWidth !== "number" ||
+      !Number.isFinite(body.observedPixelWidth) ||
+      body.observedPixelWidth <= 0
+    ) {
       return Response.json(
         { error: "referenceObject and observedPixelWidth are required." },
         { status: 400 },

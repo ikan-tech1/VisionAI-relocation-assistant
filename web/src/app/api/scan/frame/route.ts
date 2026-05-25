@@ -9,7 +9,14 @@ export async function POST(request: Request) {
       frameDataUrl?: string;
     };
 
-    if (!body?.projectId || !body?.roomId || !body?.frameDataUrl) {
+    if (
+      typeof body?.projectId !== "string" ||
+      typeof body?.roomId !== "string" ||
+      typeof body?.frameDataUrl !== "string" ||
+      !body.projectId ||
+      !body.roomId ||
+      !body.frameDataUrl.startsWith("data:image/")
+    ) {
       return Response.json(
         { error: "projectId, roomId and frameDataUrl are required." },
         { status: 400 },

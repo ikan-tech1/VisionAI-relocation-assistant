@@ -14,8 +14,18 @@ export async function PATCH(
       title?: string;
     };
 
-    if (!body?.projectId) {
-      return Response.json({ error: "projectId is required." }, { status: 400 });
+    const validStatus = body.status === undefined || ["pending", "in_progress", "done"].includes(body.status);
+    const validPriority = body.priority === undefined || ["low", "medium", "high"].includes(body.priority);
+
+    if (
+      typeof body?.projectId !== "string" ||
+      !body.projectId ||
+      !validStatus ||
+      !validPriority ||
+      (body.notes !== undefined && typeof body.notes !== "string") ||
+      (body.title !== undefined && typeof body.title !== "string")
+    ) {
+      return Response.json({ error: "Invalid task patch payload." }, { status: 400 });
     }
 
     const result = updateTask(body.projectId, id, {

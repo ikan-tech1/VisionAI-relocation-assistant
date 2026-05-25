@@ -1,7 +1,7 @@
 import { Item, ItineraryTask, Priority, RelocationProject, Room } from "@/lib/domain";
 
 function stableId(parts: string[]): string {
-  return parts.join("_").replace(/[^a-zA-Z0-9_]/g, "").toLowerCase();
+  return parts.join("_").replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase();
 }
 
 function getPriority(item: Item): Priority {

@@ -8,8 +8,19 @@ export async function POST(request: Request) {
       retentionMode?: "standard" | "ephemeral";
       confidenceReviewThreshold?: number;
     };
-    if (!body?.name?.trim()) {
-      return Response.json({ error: "Project name is required." }, { status: 400 });
+    if (
+      typeof body?.name !== "string" ||
+      !body.name.trim() ||
+      (body.moveDate !== undefined && typeof body.moveDate !== "string") ||
+      (body.retentionMode !== undefined &&
+        body.retentionMode !== "standard" &&
+        body.retentionMode !== "ephemeral") ||
+      (body.confidenceReviewThreshold !== undefined &&
+        (typeof body.confidenceReviewThreshold !== "number" ||
+          body.confidenceReviewThreshold < 0.5 ||
+          body.confidenceReviewThreshold > 0.95))
+    ) {
+      return Response.json({ error: "Invalid project payload." }, { status: 400 });
     }
 
     const project = createProject(body.name.trim(), body.moveDate, {

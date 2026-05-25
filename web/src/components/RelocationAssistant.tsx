@@ -14,6 +14,7 @@ export default function RelocationAssistant() {
   const samplingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const inFlightSampleRef = useRef(false);
+  const projectRef = useRef<RelocationProject | null>(null);
 
   const [projectName, setProjectName] = useState("My Home Relocation");
   const [roomName, setRoomName] = useState("Living Room");
@@ -38,6 +39,10 @@ export default function RelocationAssistant() {
       if (eventSourceRef.current) eventSourceRef.current.close();
     };
   }, []);
+
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
 
   const itemCount = project?.items.length ?? 0;
   const taskCount = project?.itineraryTasks.length ?? 0;
@@ -165,7 +170,8 @@ export default function RelocationAssistant() {
   }
 
   async function sampleAndSend(roomId: string) {
-    if (!project || !videoRef.current || !canvasRef.current || inFlightSampleRef.current) return;
+    if (!projectRef.current || !videoRef.current || !canvasRef.current || inFlightSampleRef.current) return;
+    const currentProject = projectRef.current;
     inFlightSampleRef.current = true;
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -177,17 +183,16 @@ export default function RelocationAssistant() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const frameDataUrl = canvas.toDataURL("image/jpeg", 0.72);
-
     try {
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const frameDataUrl = canvas.toDataURL("image/jpeg", 0.72);
       const response = await fetch("/api/scan/frame", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          projectId: project.id,
+          projectId: currentProject.id,
           roomId,
           roomHint: roomName,
           frameDataUrl,
@@ -200,6 +205,8 @@ export default function RelocationAssistant() {
       }
       const data = (await response.json()) as { project: RelocationProject };
       setProject(data.project);
+    } catch (error) {
+      setStatus(`Scan frame failed: ${String(error)}`);
     } finally {
       inFlightSampleRef.current = false;
     }
@@ -210,74 +217,86 @@ export default function RelocationAssistant() {
     patch: { status?: TaskStatus; priority?: Priority; notes?: string; title?: string },
   ) {
     if (!project) return;
-    const response = await fetch(`/api/itinerary/tasks/${taskId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: project.id, ...patch }),
-    });
-    const data = (await response.json()) as { project?: RelocationProject; error?: string };
-    if (response.ok && data.project) {
-      setProject(data.project);
-    } else {
-      setStatus(`Task update failed: ${data.error ?? "Unknown error"}`);
+    try {
+      const response = await fetch(`/api/itinerary/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id, ...patch }),
+      });
+      const data = (await response.json()) as { project?: RelocationProject; error?: string };
+      if (response.ok && data.project) {
+        setProject(data.project);
+      } else {
+        setStatus(`Task update failed: ${data.error ?? "Unknown error"}`);
+      }
+    } catch (error) {
+      setStatus(`Task update failed: ${String(error)}`);
     }
   }
 
   async function runLoadOptimization() {
     if (!project) return;
-    const response = await fetch("/api/itinerary/optimize-load", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: project.id }),
-    });
-    const data = (await response.json()) as {
-      recommendation?: {
-        truckUtilizationPercent: number;
-        packingEfficiencyScore: number;
-        cartonRecommendations: Array<{ label: string; recommendedCartonSize: string }>;
-        warnings: string[];
+    try {
+      const response = await fetch("/api/itinerary/optimize-load", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id }),
+      });
+      const data = (await response.json()) as {
+        recommendation?: {
+          truckUtilizationPercent: number;
+          packingEfficiencyScore: number;
+          cartonRecommendations: Array<{ label: string; recommendedCartonSize: string }>;
+          warnings: string[];
+        };
+        error?: string;
       };
-      error?: string;
-    };
-    if (!response.ok || !data.recommendation) {
-      setPhase2Output(data.error ?? "Unable to optimize load.");
-      return;
+      if (!response.ok || !data.recommendation) {
+        setPhase2Output(data.error ?? "Unable to optimize load.");
+        return;
+      }
+      setPhase2Output(
+        [
+          `Truck utilization: ${data.recommendation.truckUtilizationPercent}%`,
+          `Packing efficiency score: ${data.recommendation.packingEfficiencyScore}/100`,
+          `Cartons: ${data.recommendation.cartonRecommendations
+            .slice(0, 6)
+            .map((entry) => `${entry.label}→${entry.recommendedCartonSize}`)
+            .join(", ")}`,
+          `Warnings: ${data.recommendation.warnings.join("; ") || "None"}`,
+        ].join("\n"),
+      );
+    } catch (error) {
+      setPhase2Output(`Unable to optimize load: ${String(error)}`);
     }
-    setPhase2Output(
-      [
-        `Truck utilization: ${data.recommendation.truckUtilizationPercent}%`,
-        `Packing efficiency score: ${data.recommendation.packingEfficiencyScore}/100`,
-        `Cartons: ${data.recommendation.cartonRecommendations
-          .slice(0, 6)
-          .map((entry) => `${entry.label}→${entry.recommendedCartonSize}`)
-          .join(", ")}`,
-        `Warnings: ${data.recommendation.warnings.join("; ") || "None"}`,
-      ].join("\n"),
-    );
   }
 
   async function runCalibration() {
-    const response = await fetch("/api/measurements/calibrate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        referenceObject: "a4_paper",
-        observedPixelWidth: 210,
-      }),
-    });
-    const data = (await response.json()) as {
-      calibration?: { scaleCmPerPixel: number; confidence: number };
-      error?: string;
-    };
-    if (!response.ok || !data.calibration) {
-      setPhase2Output(data.error ?? "Calibration failed.");
-      return;
+    try {
+      const response = await fetch("/api/measurements/calibrate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          referenceObject: "a4_paper",
+          observedPixelWidth: 210,
+        }),
+      });
+      const data = (await response.json()) as {
+        calibration?: { scaleCmPerPixel: number; confidence: number };
+        error?: string;
+      };
+      if (!response.ok || !data.calibration) {
+        setPhase2Output(data.error ?? "Calibration failed.");
+        return;
+      }
+      setPhase2Output(
+        `Calibration scale: ${data.calibration.scaleCmPerPixel} cm/pixel (confidence ${Math.round(
+          data.calibration.confidence * 100,
+        )}%)`,
+      );
+    } catch (error) {
+      setPhase2Output(`Calibration failed: ${String(error)}`);
     }
-    setPhase2Output(
-      `Calibration scale: ${data.calibration.scaleCmPerPixel} cm/pixel (confidence ${Math.round(
-        data.calibration.confidence * 100,
-      )}%)`,
-    );
   }
 
   const groupedTasks = useMemo(() => {
@@ -311,9 +330,13 @@ export default function RelocationAssistant() {
 
   async function copyShareLink() {
     if (!project) return;
-    const shareUrl = `${window.location.origin}/api/projects/${project.id}/live-state`;
-    await navigator.clipboard.writeText(shareUrl);
-    setStatus("Share link copied to clipboard.");
+    try {
+      const shareUrl = `${window.location.origin}/api/projects/${project.id}/live-state`;
+      await navigator.clipboard.writeText(shareUrl);
+      setStatus("Share link copied to clipboard.");
+    } catch (error) {
+      setStatus(`Could not copy share link: ${String(error)}`);
+    }
   }
 
   return (
